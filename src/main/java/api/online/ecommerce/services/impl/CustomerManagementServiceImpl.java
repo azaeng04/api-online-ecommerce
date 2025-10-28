@@ -27,6 +27,8 @@ public class CustomerManagementServiceImpl implements CustomerManagementService 
         Optional<Customer> customer = customerRepository.findById(customerId);
         customer.ifPresent(value -> System.out.println("Customer name: " + value.getFirstName() + " " + value.getLastName()));
 
+        System.out.println("getCustomerById method");
+
         return customer
                 .<CustomApiResponse<Object>>map(value -> ResponseBuilder.buildResponse(ResponseMessages.GENERAL_SUCCESS_MESSAGE, value))
                 .orElseGet(() -> ResponseBuilder.buildResponse(ResponseMessages.CUSTOMER_NOT_FOUND, null));
