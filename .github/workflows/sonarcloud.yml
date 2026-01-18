@@ -7,9 +7,37 @@ on:
     branches: [master, main]
 
 jobs:
+  check-source:
+    name: Check for Source Code
+    runs-on: ubuntu-latest
+    outputs:
+      has_source: ${{ steps.check.outputs.has_source }}
+      has_pom: ${{ steps.check.outputs.has_pom }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check for source files
+        id: check
+        run: |
+          if [ -f "pom.xml" ]; then
+            echo "has_pom=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_pom=false" >> $GITHUB_OUTPUT
+          fi
+
+          if [ -d "src" ] || [ -f "pom.xml" ]; then
+            echo "has_source=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_source=false" >> $GITHUB_OUTPUT
+            echo "::notice::No source code found. SonarCloud analysis will be skipped."
+          fi
+
   sonarcloud:
     name: SonarCloud Scan
     runs-on: ubuntu-latest
+    needs: check-source
+    if: needs.check-source.outputs.has_source == 'true'
 
     steps:
       - name: Checkout code
@@ -17,10 +45,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 17
+      - name: Set up JDK 21
+        if: needs.check-source.outputs.has_pom == 'true'
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
+          java-version: '21'
           distribution: 'temurin'
           cache: maven
 
@@ -31,21 +60,29 @@ jobs:
           key: ${{ runner.os }}-sonar
           restore-keys: ${{ runner.os }}-sonar
 
-      - name: Build and Analyze
+      - name: Build and Analyze (Maven)
+        if: needs.check-source.outputs.has_pom == 'true'
         run: |
-          if [ -f "pom.xml" ]; then
-            mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
-              -Dsonar.projectKey=azaeng04_api-online-ecommerce
-          else
-            echo "No pom.xml found - skipping Maven build"
-          fi
+          mvn -B verify org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.projectKey=azaeng04_api-online-ecommerce
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      - name: SonarCloud Scan (fallback)
-        if: ${{ hashFiles('pom.xml') == '' }}
+      - name: SonarCloud Scan (Non-Maven)
+        if: needs.check-source.outputs.has_pom == 'false'
         uses: SonarSource/sonarcloud-github-action@master
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  skip-notice:
+    name: Analysis Skipped
+    runs-on: ubuntu-latest
+    needs: check-source
+    if: needs.check-source.outputs.has_source == 'false'
+    steps:
+      - name: Notice
+        run: |
+          echo "::notice::SonarCloud analysis skipped - no source code in repository yet."
+          echo "Add source code to enable quality analysis."
